@@ -1,0 +1,194 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Andrew Clarkson"
+date: "September 18, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+This analysis used personal activity data to classify how well barbell lifts are performed using data from 6 participants graded A through E. Three different models are trained, cross validated, and compared using the training data set. The best performing model (the Random Forest) is then used to predict the performance of the 20 unlabelled testing observations.
+
+## Loading data
+
+The data was loaded from csv files and then broken into predictors and results (x and y respectively).
+
+```{r loading-data}
+library(dplyr)
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+training.y <- training$classe
+training.x <- select(training, -c(classe))
+
+testing.ids <- testing$problem_id
+testing.x <- select(testing, -c(problem_id))
+```
+
+
+## Cleaning and Normalizing
+
+Several columns vary with each observation and thus aren't very useful for training.
+
+```{r bad-columns}
+training.x <- select(training.x, -c(
+  X,
+  user_name,
+  raw_timestamp_part_1,
+  raw_timestamp_part_2,
+  cvtd_timestamp,
+  new_window,             
+  num_window
+))
+
+testing.x <- select(testing.x, -c(
+  X,
+  user_name,
+  raw_timestamp_part_1,
+  raw_timestamp_part_2,
+  cvtd_timestamp,
+  new_window,             
+  num_window
+))
+```
+
+
+Many of the columns contain "#DIV/0!" and thus get converted to a factor. These should be converted to doubles where possible.
+
+```{r convert-columns}
+
+# A function to convert factor columns to numerical values
+convertColumn <- function(x) { 
+  if(is.factor(x)) {
+    as.numeric(as.character(x))
+  } else x
+}
+
+# Get rid of columns that vary for each measurement or
+# aren't related to movement
+training.x <- training.x %>% 
+  mutate_each(funs(convertColumn))
+
+testing.x <- testing.x %>%
+  mutate_each(funs(convertColumn))
+```
+
+There are a number of columns that don't have any values.
+
+```{r empty-columns}
+# Find columns that are entirely NA's         
+allNA <- function(x) { all(is.na(x)) }
+colnames(subset(training.x, select = sapply(training.x, allNA)))
+```
+
+These values can be removed.
+
+```{r removed}
+training.x <- select(training.x, -c(
+  kurtosis_yaw_belt,   
+  skewness_yaw_belt,
+  kurtosis_yaw_dumbbell,
+  skewness_yaw_dumbbell,
+  kurtosis_yaw_forearm, 
+  skewness_yaw_forearm))
+
+testing.x <- select(testing.x, -c(
+  kurtosis_yaw_belt,   
+  skewness_yaw_belt,
+  kurtosis_yaw_dumbbell,
+  skewness_yaw_dumbbell,
+  kurtosis_yaw_forearm, 
+  skewness_yaw_forearm))
+```
+
+Most of the classification algorithms cannot handle NA values. Thus NA values should be set to zero before scaling and centering.
+
+```{r zeroing}
+training.x[is.na(training.x)] <- 0
+testing.x[is.na(testing.x)] <- 0
+```
+
+## Feature Engineering
+
+In order to reduce noisy and/or irrelevant variables, this analysis employs PCA to reduce variables to 20 compound factors. Before the PCA is applied, columns with nearly zero variance are disregarded. 
+
+```{r feature-engineering}
+library(caret)
+
+pca <- preProcess(training.x, method = c("nzv", "pca"), pcaComp = 20)
+training.pca <- predict(pca, training.x)
+testing.pca <- predict(pca, testing.x)
+
+```
+
+## Modeling
+
+Before comparing models, a standard cross validation metric must be decided on. This analysis uses a k-folds algorithm with 5 folds. The models will be compared by accuracy scores.
+
+```{r control}
+control <- trainControl(method="cv", number=5)
+```
+
+The first model considered is a random forest. Parameters are chosen from defaults. Given more resources a grid search could likely improve accuracy.
+
+```{r random-forest, echo=FALSE}
+grid <- expand.grid(mtry=10)
+set.seed(7861)
+resultsRF <- train(training.pca, training.y, method="rf", trControl = control, do.trace=TRUE, ntree=500, tuneGrid = grid)
+```
+
+The Random Forest has an accuracy score of approximately 98%.
+
+```{r rf-accuracy}
+resultsRF$results
+```
+
+The next model considered is a gradient boosting regression model. The parameters are chosen from defaults again.
+
+```{r gbm, echo=FALSE}
+grid <- expand.grid(
+  .n.trees=500, 
+  .interaction.depth = 5, 
+  .shrinkage=0.1, 
+  .n.minobsinnode=10
+)
+set.seed(7861)
+resultsGBM <- train(training.pca, training.y, method="gbm", trControl = control, tuneGrid = grid)
+```
+
+The accuracy of the Gradient Boosting Classifier was approximately 77%.
+
+```{r gbm-accuracy}
+resultsGBM$results
+```
+
+The final model compared is a K-Nearest Neighbors classifier.
+
+```{r knn, echo=FALSE}
+control <- trainControl(method="cv", number=5)
+grid <- expand.grid(k=10)
+set.seed(7861)
+resultsKNN <- train(training.pca, training.y, method="knn", trControl = control, tuneGrid = grid)
+```
+
+The K-Nearest Neighbors Classifier had an accuracy score of approximately 93%.
+
+```{r knn-accuracy}
+resultsKNN$results
+```
+
+## Results
+
+The Random Forest was the most accurate model of the three that were compared. The resulting model can now be used to predict the testing values.
+
+```{r prediction}
+predict(resultsRF$finalModel, testing.pca)
+```
+
+## Out of Sample Error
+
+The out of sample error for this problem is difficult to estimate. All of the models used 5 folds for validation. These folds were fairly large which leads to less bias, but more of a chance for out of sample error. Even so, given the relatively high accuracy of the model chosen, I expect the out of sample error to be below 10%.
