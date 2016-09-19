@@ -7,6 +7,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+
 ```
 
 ## Summary
@@ -17,7 +19,7 @@ This analysis used personal activity data to classify how well barbell lifts are
 
 The data was loaded from csv files and then broken into predictors and results (x and y respectively).
 
-```{r loading-data}
+```{r loading-data, results="hide", message=FALSE}
 library(dplyr)
 training <- read.csv("pml-training.csv")
 testing <- read.csv("pml-testing.csv")
@@ -59,7 +61,7 @@ testing.x <- select(testing.x, -c(
 
 Many of the columns contain "#DIV/0!" and thus get converted to a factor. These should be converted to doubles where possible.
 
-```{r convert-columns}
+```{r convert-columns, results="hide"}
 
 # A function to convert factor columns to numerical values
 convertColumn <- function(x) { 
@@ -116,7 +118,7 @@ testing.x[is.na(testing.x)] <- 0
 
 In order to reduce noisy and/or irrelevant variables, this analysis employs PCA to reduce variables to 20 compound factors. Before the PCA is applied, columns with nearly zero variance are disregarded. 
 
-```{r feature-engineering}
+```{r feature-engineering, results="hide", message=FALSE}
 library(caret)
 
 pca <- preProcess(training.x, method = c("nzv", "pca"), pcaComp = 20)
@@ -135,7 +137,7 @@ control <- trainControl(method="cv", number=5)
 
 The first model considered is a random forest. Parameters are chosen from defaults. Given more resources a grid search could likely improve accuracy.
 
-```{r random-forest, echo=FALSE}
+```{r random-forest, results="hide", message=FALSE}
 grid <- expand.grid(mtry=10)
 set.seed(7861)
 resultsRF <- train(training.pca, training.y, method="rf", trControl = control, do.trace=TRUE, ntree=500, tuneGrid = grid)
@@ -149,9 +151,9 @@ resultsRF$results
 
 The next model considered is a gradient boosting regression model. The parameters are chosen from defaults again.
 
-```{r gbm, echo=FALSE}
+```{r gbm, results="hide", message=FALSE}
 grid <- expand.grid(
-  .n.trees=500, 
+  .n.trees=100, 
   .interaction.depth = 5, 
   .shrinkage=0.1, 
   .n.minobsinnode=10
@@ -168,7 +170,7 @@ resultsGBM$results
 
 The final model compared is a K-Nearest Neighbors classifier.
 
-```{r knn, echo=FALSE}
+```{r knn, results="hide", message=FALSE}
 control <- trainControl(method="cv", number=5)
 grid <- expand.grid(k=10)
 set.seed(7861)
